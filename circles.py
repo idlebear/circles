@@ -4,6 +4,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.colors as mcolors
 from shapely.geometry import Polygon, MultiPolygon
+from shapely import set_precision
+
+global precision, min_area
+precision = 1e-15
+min_area = 1e-4
 
 
 # define a function to parse arguments
@@ -11,21 +16,11 @@ def parse_args():
     import argparse
 
     parser = argparse.ArgumentParser(description="Plotting polygons.")
-    parser.add_argument(
-        "-n", "--number", type=int, default=10, help="number of polygons to plot"
-    )
-    parser.add_argument(
-        "-s", "--sides", type=int, default=4, help="number of sides for each polygons"
-    )
-    parser.add_argument(
-        "-r", "--radius", type=float, default=0.2, help="size of the polygons"
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42, help="random initilization seed"
-    )
-    parser.add_argument(
-        "--prefix", type=str, default=None, help="prefix for the output files"
-    )
+    parser.add_argument("-n", "--number", type=int, default=10, help="number of polygons to plot")
+    parser.add_argument("-s", "--sides", type=int, default=4, help="number of sides for each polygons")
+    parser.add_argument("-r", "--radius", type=float, default=0.2, help="size of the polygons")
+    parser.add_argument("--seed", type=int, default=42, help="random initilization seed")
+    parser.add_argument("--prefix", type=str, default=None, help="prefix for the output files")
 
     return parser.parse_args()
 
@@ -33,7 +28,7 @@ def parse_args():
 # define a function to plot a polygon
 def plot_polygon(ax, polygon, colour="blue", filled=True):
     mpl_polygon = patches.Polygon(
-        np.array(polygon.exterior),
+        np.array(polygon.exterior.coords),
         closed=True,
         color=colour,
         alpha=1.0,
@@ -106,12 +101,16 @@ def generate_polygon(gen, x, y, s, r):
 
 # turn the list of polygons into a list of shapely polygons
 def shapely_polygons(poly_list):
+    global precision
+
     # create a list of shapely polygons
     shp_list = []
     # loop over the polygons
     for poly in poly_list:
         # create a shapely polygon
         shp_poly = Polygon(poly)
+        shp_poly = set_precision(shp_poly, grid_size=precision)
+
         # add the polygon to the list
         shp_list.append(shp_poly)
     # return the list of shapely polygons
@@ -160,27 +159,27 @@ def add_polygon(shp_list, new_poly, count=0):
             final_list.append(shp_list[i])
 
     # # return the final list of polygons
-    # plot_polygons(final_list + remainder, name=f"final_list_{count}.png")
     return final_list
 
 
 def clean_polygons(poly_object):
+    global precision, min_area
+
     out_list = []
-    if poly_object.type == "Polygon":
-        if (
-            not poly_object.is_empty
-            and poly_object.is_valid
-            and poly_object.area > 1e-6
-        ):
-            out_list.append(poly_object)
-    elif poly_object.type == "MultiPolygon":
-        for poly in poly_object:
-            if not poly.is_empty and poly.is_valid and poly.area > 1e-6:
+    if poly_object.geom_type == "Polygon":
+        poly = set_precision(poly_object, grid_size=precision)
+        if not poly.is_empty and poly.is_valid and poly.area > min_area:
+            out_list.append(poly)
+    elif poly_object.geom_type == "MultiPolygon":
+        for poly in poly_object.geoms:
+            poly = set_precision(poly, grid_size=precision)
+            if not poly.is_empty and poly.is_valid and poly.area > min_area:
                 out_list.append(poly)
-    elif poly_object.type == "GeometryCollection":
-        for poly in poly_object:
-            if poly.type == "Polygon":
-                if not poly.is_empty and poly.is_valid and poly.area > 1e-6:
+    elif poly_object.geom_type == "GeometryCollection":
+        for poly in poly_object.geoms:
+            if poly.geom_type == "Polygon":
+                poly = set_precision(poly, grid_size=precision)
+                if not poly.is_empty and poly.is_valid and poly.area > min_area:
                     out_list.append(poly)
 
     return out_list
@@ -218,10 +217,10 @@ def main():
 
     # turn the list of polygons into a list of shapely polygons
     shp_polys = []
-    count = 0
-    for poly in poly_list:
+    for count, poly in enumerate(poly_list):
         shp_polys = add_polygon(shp_polys, poly, count)
-        count += 1
+        plot_polygons(shp_polys, name=f"final_list_{count}.png")
+        print(f"After adding {count}, Number of polygons: {len(shp_polys)}")
 
     # plot the polygons
     prefix_str = ""
